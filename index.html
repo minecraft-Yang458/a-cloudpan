@@ -7,7 +7,7 @@
 <body>
   <h1>QSDQ 云盘</h1>
 
-  <!-- 上传文件 -->
+  <!-- 上传 -->
   <input type="file" id="fileInput">
   <button onclick="uploadFile()">上传</button>
   <div id="uploadStatus"></div>
@@ -17,7 +17,7 @@
   <button onclick="refreshFiles()">刷新列表</button>
   <ul id="file-list"></ul>
 
-  <!-- 下载文件 -->
+  <!-- 下载 -->
   <input type="text" id="downloadName" placeholder="输入文件名下载">
   <button onclick="downloadFile()">下载</button>
 
@@ -110,7 +110,7 @@
       }
     }
 
-    // 页面加载时刷新一次列表
+    // 页面加载时刷新列表
     refreshFiles();
   </script>
 </body>
