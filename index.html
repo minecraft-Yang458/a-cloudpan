@@ -2,83 +2,105 @@
 <html lang="zh">
 <head>
   <meta charset="UTF-8">
-  <title>我的云盘</title>
+  <title>QSDQ 云盘</title>
 </head>
 <body>
-  <h2>我的云盘</h2>
+  <h1>QSDQ 云盘</h1>
 
-  <h3>上传文件</h3>
+  <!-- 上传文件 -->
   <input type="file" id="fileInput">
   <button onclick="uploadFile()">上传</button>
-  <p id="uploadStatus"></p>
+  <div id="uploadStatus"></div>
 
-  <h3>下载文件</h3>
-  <input type="text" id="fileNameInput" placeholder="输入文件名">
+  <!-- 文件列表 -->
+  <h2>文件列表</h2>
+  <button onclick="refreshFiles()">刷新列表</button>
+  <ul id="file-list"></ul>
+
+  <!-- 下载文件 -->
+  <input type="text" id="downloadName" placeholder="输入文件名下载">
   <button onclick="downloadFile()">下载</button>
-  <p id="downloadStatus"></p>
-
-  <h3>文件列表</h3>
-  <button onclick="listFiles()">刷新列表</button>
-  <ul id="fileList"></ul>
 
   <script>
-    const API_BASE = '/api'; // 对应 Workers 路由
+    async function refreshFiles() {
+      try {
+        const resp = await fetch("/api/list");
+        const data = await resp.json();
+
+        const fileList = document.getElementById("file-list");
+        fileList.innerHTML = "";
+
+        data.entries.forEach(file => {
+          const li = document.createElement("li");
+          const sizeMB = file.size ? (file.size / 1024 / 1024).toFixed(2) : "-";
+          li.textContent = `${file.name} (${sizeMB} MB)`;
+          fileList.appendChild(li);
+        });
+      } catch (err) {
+        alert("获取文件列表失败: " + err);
+      }
+    }
 
     async function uploadFile() {
-      const file = document.getElementById('fileInput').files[0];
-      if (!file) {
-        document.getElementById('uploadStatus').innerText = '请选择文件';
-        return;
-      }
-      const form = new FormData();
-      form.append('file', file);
+      const input = document.getElementById("fileInput");
+      const statusDiv = document.getElementById("uploadStatus");
+      if (!input.files.length) return alert("请选择文件");
+
+      const file = input.files[0];
+      const formData = new FormData();
+      formData.append("file", file);
 
       try {
-        const res = await fetch(`${API_BASE}/upload`, { method: 'POST', body: form });
-        const data = await res.json();
-        document.getElementById('uploadStatus').innerText = data.message || '上传完成';
-      } catch (e) {
-        document.getElementById('uploadStatus').innerText = '上传失败: ' + e;
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", "/api/upload", true);
+
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            const percent = ((e.loaded / e.total) * 100).toFixed(1);
+            statusDiv.textContent = `上传中: ${percent}%`;
+          }
+        };
+
+        xhr.onload = () => {
+          if (xhr.status === 200) {
+            statusDiv.textContent = `上传完成: ${file.name}`;
+            refreshFiles();
+          } else {
+            statusDiv.textContent = `上传失败: ${xhr.responseText}`;
+          }
+        };
+
+        xhr.send(formData);
+      } catch (err) {
+        statusDiv.textContent = "上传异常: " + err;
       }
     }
 
     async function downloadFile() {
-      const name = document.getElementById('fileNameInput').value.trim();
-      if (!name) {
-        document.getElementById('downloadStatus').innerText = '请输入文件名';
-        return;
-      }
+      const filename = document.getElementById("downloadName").value.trim();
+      if (!filename) return alert("请输入文件名");
+
       try {
-        const res = await fetch(`${API_BASE}/download?filename=${encodeURIComponent(name)}`);
-        if (!res.ok) throw new Error('下载失败');
-        const blob = await res.blob();
+        const resp = await fetch(`/api/download?filename=${encodeURIComponent(filename)}`);
+        if (!resp.ok) throw new Error(await resp.text());
+
+        const blob = await resp.blob();
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
+
+        const a = document.createElement("a");
         a.href = url;
-        a.download = name;
+        a.download = filename;
+        document.body.appendChild(a);
         a.click();
+        a.remove();
         URL.revokeObjectURL(url);
-        document.getElementById('downloadStatus').innerText = '下载成功';
-      } catch (e) {
-        document.getElementById('downloadStatus').innerText = e;
+      } catch (err) {
+        alert("下载失败: " + err);
       }
     }
 
-    async function listFiles() {
-      try {
-        const res = await fetch(`${API_BASE}/list`);
-        const files = await res.json();
-        const ul = document.getElementById('fileList');
-        ul.innerHTML = '';
-        files.forEach(f => {
-          const li = document.createElement('li');
-          li.textContent = f;
-          ul.appendChild(li);
-        });
-      } catch (e) {
-        alert('获取文件列表失败: ' + e);
-      }
-    }
+    // 页面加载时刷新一次列表
+    refreshFiles();
   </script>
 </body>
 </html>
