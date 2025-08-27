@@ -30,10 +30,21 @@
         const fileList = document.getElementById("file-list");
         fileList.innerHTML = "";
 
+        if (!data.entries || data.entries.length === 0) {
+          const li = document.createElement("li");
+          li.textContent = "列表为空";
+          fileList.appendChild(li);
+          return;
+        }
+
         data.entries.forEach(file => {
           const li = document.createElement("li");
-          const sizeMB = file.size ? (file.size / 1024 / 1024).toFixed(2) : "-";
-          li.textContent = `${file.name} (${sizeMB} MB)`;
+          if (file[".tag"] === "file") {
+            const sizeMB = (file.size / 1024 / 1024).toFixed(2);
+            li.textContent = `${file.name} (${sizeMB} MB)`;
+          } else {
+            li.textContent = `${file.name} (folder)`;
+          }
           fileList.appendChild(li);
         });
       } catch (err) {
