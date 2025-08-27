@@ -1,117 +1,153 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <title>QSDQ 云盘</title>
+<meta charset="UTF-8">
+<title>QSDQ CloudPan</title>
+<style>
+  body { font-family: "Segoe UI", sans-serif; background: #f5f5f5; margin:0; padding:0; }
+  header { background:#4CAF50; color:white; padding:1rem; text-align:center; font-size:1.5rem; }
+  main { max-width:900px; margin:2rem auto; background:white; padding:1.5rem; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.1); }
+  table { width:100%; border-collapse: collapse; margin-top:1rem; }
+  th, td { padding:0.8rem; border-bottom:1px solid #ddd; text-align:left; }
+  th { background:#f0f0f0; }
+  tr:hover { background:#f9f9f9; }
+  button { padding:0.5rem 1rem; border:none; border-radius:5px; background:#4CAF50; color:white; cursor:pointer; margin-right:0.5rem; }
+  button:hover { background:#45a049; }
+  #upload-section { margin-top:1rem; display:flex; flex-direction: column; gap:0.5rem; }
+  #large-file-code { display:none; }
+  .status { margin-top:1rem; color:#333; }
+</style>
 </head>
 <body>
-  <h1>QSDQ 云盘</h1>
+<header>QSDQ CloudPan</header>
+<main>
+  <div>
+    <button id="refresh-btn">刷新列表</button>
+    <span class="status" id="status"></span>
+  </div>
 
-  <!-- 上传 -->
-  <input type="file" id="fileInput">
-  <button onclick="uploadFile()">上传</button>
-  <div id="uploadStatus"></div>
+  <table id="file-table">
+    <thead>
+      <tr>
+        <th>文件名</th>
+        <th>大小</th>
+        <th>来源</th>
+        <th>操作</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td colspan="4">列表为空</td></tr>
+    </tbody>
+  </table>
 
-  <!-- 文件列表 -->
-  <h2>文件列表</h2>
-  <button onclick="refreshFiles()">刷新列表</button>
-  <ul id="file-list"></ul>
+  <div id="upload-section">
+    <input type="file" id="file-input" />
+    <input type="text" id="large-file-code" placeholder="大文件校验码" />
+    <button id="upload-btn">上传文件</button>
+  </div>
+</main>
 
-  <!-- 下载 -->
-  <input type="text" id="downloadName" placeholder="输入文件名下载">
-  <button onclick="downloadFile()">下载</button>
+<script>
+const FILE_SIZE_LIMIT = 5 * 1024 * 1024 * 1024; // 5GB
+const statusEl = document.getElementById("status");
+const fileInput = document.getElementById("file-input");
+const codeInput = document.getElementById("large-file-code");
 
-  <script>
-    async function refreshFiles() {
-      try {
-        const resp = await fetch("/api/list");
-        const data = await resp.json();
-
-        const fileList = document.getElementById("file-list");
-        fileList.innerHTML = "";
-
-        if (!data.entries || data.entries.length === 0) {
-          const li = document.createElement("li");
-          li.textContent = "列表为空";
-          fileList.appendChild(li);
-          return;
-        }
-
-        data.entries.forEach(file => {
-          const li = document.createElement("li");
-          if (file[".tag"] === "file") {
-            const sizeMB = (file.size / 1024 / 1024).toFixed(2);
-            li.textContent = `${file.name} (${sizeMB} MB)`;
-          } else {
-            li.textContent = `${file.name} (folder)`;
-          }
-          fileList.appendChild(li);
-        });
-      } catch (err) {
-        alert("获取文件列表失败: " + err);
-      }
+async function fetchFileList() {
+  statusEl.textContent = "刷新中...";
+  try {
+    const res = await fetch("/api/list");
+    const data = await res.json();
+    const tbody = document.querySelector("#file-table tbody");
+    tbody.innerHTML = "";
+    if (!data.files || data.files.length === 0 || data.files === "列表为空") {
+      tbody.innerHTML = '<tr><td colspan="4">列表为空</td></tr>';
+      statusEl.textContent = "";
+      return;
     }
+    data.files.forEach(f => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${f.name}</td>
+                      <td>${(f.size/1024/1024).toFixed(2)} MB</td>
+                      <td>${f.source}</td>
+                      <td><button onclick="downloadFile('${encodeURIComponent(f.name)}')">下载</button></td>`;
+      tbody.appendChild(tr);
+    });
+    statusEl.textContent = "";
+  } catch(e) {
+    statusEl.textContent = "刷新列表失败";
+    console.error(e);
+  }
+}
 
-    async function uploadFile() {
-      const input = document.getElementById("fileInput");
-      const statusDiv = document.getElementById("uploadStatus");
-      if (!input.files.length) return alert("请选择文件");
+async function downloadFile(filename) {
+  statusEl.textContent = "下载中...";
+  try {
+    const res = await fetch(`/api/download?file=${filename}`);
+    if (!res.ok) throw new Error(await res.text());
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = decodeURIComponent(filename);
+    a.click();
+    statusEl.textContent = "下载完成";
+  } catch(e) {
+    statusEl.textContent = "下载失败: " + e.message;
+    console.error(e);
+  }
+}
 
-      const file = input.files[0];
-      const formData = new FormData();
-      formData.append("file", file);
+async function uploadFile() {
+  const file = fileInput.files[0];
+  if (!file) { statusEl.textContent="请选择文件"; return; }
 
-      try {
-        const xhr = new XMLHttpRequest();
-        xhr.open("POST", "/api/upload", true);
+  // 大文件显示校验码输入框
+  if (file.size > FILE_SIZE_LIMIT) {
+    codeInput.style.display = "block";
+    const code = codeInput.value.trim();
+    if (!code) { statusEl.textContent="请输入大文件校验码"; return; }
 
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) {
-            const percent = ((e.loaded / e.total) * 100).toFixed(1);
-            statusDiv.textContent = `上传中: ${percent}%`;
-          }
-        };
+    // 发送请求给 Worker 获取 Resumable Upload URL
+    const formData = new FormData();
+    formData.append("filename", file.name);
+    formData.append("size", file.size);
+    formData.append("code", code);
 
-        xhr.onload = () => {
-          if (xhr.status === 200) {
-            statusDiv.textContent = `上传完成: ${file.name}`;
-            refreshFiles();
-          } else {
-            statusDiv.textContent = `上传失败: ${xhr.responseText}`;
-          }
-        };
-
-        xhr.send(formData);
-      } catch (err) {
-        statusDiv.textContent = "上传异常: " + err;
-      }
+    statusEl.textContent = "准备上传大文件...";
+    try {
+      const res = await fetch("/api/upload", { method:"POST", body: formData });
+      const data = await res.json();
+      if (!data.uploadUrl) throw new Error(JSON.stringify(data));
+      // 前端直接 PUT 上传大文件
+      await fetch(data.uploadUrl, { method:"PUT", body:file });
+      statusEl.textContent = "大文件上传完成";
+      fetchFileList();
+    } catch(e) {
+      statusEl.textContent = "上传失败: " + e.message;
     }
-
-    async function downloadFile() {
-      const filename = document.getElementById("downloadName").value.trim();
-      if (!filename) return alert("请输入文件名");
-
-      try {
-        const resp = await fetch(`/api/download?filename=${encodeURIComponent(filename)}`);
-        if (!resp.ok) throw new Error(await resp.text());
-
-        const blob = await resp.blob();
-        const url = URL.createObjectURL(blob);
-
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-      } catch (err) {
-        alert("下载失败: " + err);
-      }
+  } else {
+    // 小文件直接上传
+    const formData = new FormData();
+    formData.append("file", file);
+    statusEl.textContent = "上传中...";
+    try {
+      const res = await fetch("/api/upload", { method:"POST", body: formData });
+      const text = await res.text();
+      statusEl.textContent = "上传完成";
+      fetchFileList();
+    } catch(e) {
+      statusEl.textContent = "上传失败: " + e.message;
+      console.error(e);
     }
+  }
+}
 
-    // 页面加载时刷新列表
-    refreshFiles();
-  </script>
+document.getElementById("refresh-btn").addEventListener("click", fetchFileList);
+document.getElementById("upload-btn").addEventListener("click", uploadFile);
+
+// 页面加载时刷新列表
+fetchFileList();
+</script>
 </body>
 </html>
