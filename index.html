@@ -4,102 +4,343 @@
   <meta charset="UTF-8">
   <title>混合网盘系统</title>
   <style>
-    body { font-family: sans-serif; padding: 20px; }
-    h1 { margin-bottom: 10px; }
-    .file-list { margin-top: 20px; }
-    .file-item { margin: 5px 0; }
+    body { 
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+      padding: 20px; 
+      background: #f5f7f9;
+      color: #333;
+      line-height: 1.6;
+    }
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+      background: white;
+      padding: 25px;
+      border-radius: 10px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+    h1 { 
+      text-align: center; 
+      color: #2c3e50;
+      margin-bottom: 25px;
+      padding-bottom: 15px;
+      border-bottom: 2px solid #eee;
+    }
+    .upload-section {
+      background: #f8f9fa;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 25px;
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: 600;
+      color: #2c3e50;
+    }
+    input[type="file"], input[type="text"], select {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 16px;
+    }
+    button {
+      background: #3498db;
+      color: white;
+      border: none;
+      padding: 12px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: 600;
+      transition: background 0.3s;
+    }
+    button:hover {
+      background: #2980b9;
+    }
+    .file-list {
+      margin-top: 30px;
+    }
+    .file-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+    .file-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 15px;
+      border-bottom: 1px solid #eee;
+      transition: background 0.2s;
+    }
+    .file-item:hover {
+      background: #f9f9f9;
+    }
+    .file-info {
+      flex: 1;
+    }
+    .file-name {
+      font-weight: 600;
+      margin-bottom: 5px;
+    }
+    .file-meta {
+      font-size: 14px;
+      color: #7f8c8d;
+    }
+    .file-actions a {
+      background: #2ecc71;
+      color: white;
+      padding: 8px 15px;
+      border-radius: 4px;
+      text-decoration: none;
+      font-size: 14px;
+      transition: background 0.3s;
+    }
+    .file-actions a:hover {
+      background: #27ae60;
+    }
+    .status-message {
+      padding: 10px;
+      margin: 10px 0;
+      border-radius: 4px;
+      text-align: center;
+    }
+    .success {
+      background: #d4edda;
+      color: #155724;
+    }
+    .error {
+      background: #f8d7da;
+      color: #721c24;
+    }
+    .warning {
+      background: #fff3cd;
+      color: #856404;
+    }
+    .large-file-note {
+      display: none;
+      background: #e8f4fd;
+      padding: 10px;
+      border-radius: 4px;
+      margin-top: 10px;
+      font-size: 14px;
+    }
   </style>
 </head>
 <body>
-  <h1>混合储存网盘</h1>
+  <div class="container">
+    <h1>混合储存网盘</h1>
 
-  <div>
-    <input type="file" id="fileInput">
-    <select id="uploadType">
-      <option value="dropbox">Dropbox</option>
-      <option value="gdrive">Google Drive</option>
-    </select>
-    <button onclick="uploadFile()">上传</button>
-  </div>
+    <div class="upload-section">
+      <h2>上传文件</h2>
+      <div class="form-group">
+        <label for="fileInput">选择文件</label>
+        <input type="file" id="fileInput">
+      </div>
+      
+      <div class="form-group">
+        <label for="largeFileCode">大文件校验码（仅文件大于5GB时需要）</label>
+        <input type="text" id="largeFileCode" placeholder="从管理员处获取校验码">
+        <div class="large-file-note" id="largeFileNote">
+          注意：大文件将直接上传到Google Drive，需要管理员提供的校验码。
+        </div>
+      </div>
+      
+      <button onclick="uploadFile()">上传文件</button>
+      <div id="uploadStatus"></div>
+    </div>
 
-  <div class="file-list">
-    <h2>文件列表</h2>
-    <button onclick="loadFiles()">刷新</button>
-    <ul id="fileList"></ul>
+    <div class="file-list">
+      <div class="file-header">
+        <h2>文件列表</h2>
+        <button onclick="loadFiles()">刷新列表</button>
+      </div>
+      
+      <div id="fileListContainer">
+        <p>加载中...</p>
+      </div>
+    </div>
   </div>
 
   <script>
     const API_BASE = "/api"; // Worker 路由前缀
+    const FILE_SIZE_LIMIT = 5 * 1024 * 1024 * 1024; // 5GB
+
+    // 页面加载时初始化
+    document.getElementById('fileInput').addEventListener('change', function() {
+      const file = this.files[0];
+      const largeFileNote = document.getElementById('largeFileNote');
+      
+      if (file && file.size > FILE_SIZE_LIMIT) {
+        largeFileNote.style.display = 'block';
+      } else {
+        largeFileNote.style.display = 'none';
+      }
+    });
 
     async function uploadFile() {
-      const fileInput = document.getElementById("fileInput");
+      const fileInput = document.getElementById('fileInput');
+      const codeInput = document.getElementById('largeFileCode');
+      const statusEl = document.getElementById('uploadStatus');
+      
       if (fileInput.files.length === 0) {
-        alert("请选择文件");
+        showStatus('请选择文件', 'error');
         return;
       }
 
       const file = fileInput.files[0];
-      const uploadType = document.getElementById("uploadType").value;
-
-      // >5GB 文件需要校验码
-      if (file.size > 5 * 1024 * 1024 * 1024) {
-        const code = prompt("请输入大文件校验码");
+      const isLargeFile = file.size > FILE_SIZE_LIMIT;
+      
+      // 大文件需要校验码
+      if (isLargeFile) {
+        const code = codeInput.value.trim();
         if (!code) {
-          alert("必须输入校验码");
+          showStatus('大文件需要校验码', 'error');
           return;
         }
-
-        const form = new FormData();
-        form.append("filename", file.name);
-        form.append("size", file.size);
-        form.append("code", code);
-        form.append("upload_type", uploadType);
-
-        const res = await fetch(`${API_BASE}/upload`, { method: "POST", body: form });
-        const data = await res.json();
-        if (res.ok && data.uploadUrl) {
-          alert("请在控制台查看上传链接，自己用 fetch/工具上传：\n" + data.uploadUrl);
-          console.log("大文件上传链接：", data.uploadUrl);
-        } else {
-          alert("校验失败或出错: " + JSON.stringify(data));
-        }
-        return;
       }
 
-      // 小文件直接上传
-      const form = new FormData();
-      form.append("file", file);
-      form.append("upload_type", uploadType);
+      showStatus('上传中...', 'warning');
+      
+      try {
+        if (isLargeFile) {
+          // 大文件直接上传到Google Drive
+          await uploadLargeFile(file, codeInput.value.trim());
+        } else {
+          // 小文件先尝试Dropbox，满了则传Google Drive
+          await uploadSmallFile(file);
+        }
+        
+        showStatus('上传成功！', 'success');
+        loadFiles(); // 刷新文件列表
+        
+        // 清空表单
+        fileInput.value = '';
+        codeInput.value = '';
+        document.getElementById('largeFileNote').style.display = 'none';
+      } catch (error) {
+        showStatus('上传失败: ' + error.message, 'error');
+        console.error('Upload error:', error);
+      }
+    }
 
-      const res = await fetch(`${API_BASE}/upload`, { method: "POST", body: form });
+    async function uploadSmallFile(file) {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("upload_type", "dropbox"); // 先尝试Dropbox
+
+      const res = await fetch(`${API_BASE}/upload`, { method: "POST", body: formData });
       const data = await res.json();
-      if (res.ok) {
-        alert("上传成功！");
-        loadFiles();
-      } else {
-        alert("上传失败: " + JSON.stringify(data));
+      
+      if (!res.ok) {
+        // 如果Dropbox满了，尝试Google Drive
+        if (data.error && data.error.includes("space")) {
+          const retryFormData = new FormData();
+          retryFormData.append("file", file);
+          retryFormData.append("upload_type", "gdrive");
+          
+          const retryRes = await fetch(`${API_BASE}/upload`, { method: "POST", body: retryFormData });
+          const retryData = await retryRes.json();
+          
+          if (!retryRes.ok) {
+            throw new Error(retryData.error || "上传失败");
+          }
+        } else {
+          throw new Error(data.error || "上传失败");
+        }
+      }
+    }
+
+    async function uploadLargeFile(file, code) {
+      // 获取上传URL
+      const metaFormData = new FormData();
+      metaFormData.append("filename", file.name);
+      metaFormData.append("size", file.size);
+      metaFormData.append("code", code);
+      metaFormData.append("upload_type", "gdrive"); // 大文件直接传Google Drive
+
+      const metaRes = await fetch(`${API_BASE}/upload`, { method: "POST", body: metaFormData });
+      const metaData = await metaRes.json();
+      
+      if (!metaRes.ok || !metaData.uploadUrl) {
+        throw new Error(metaData.error || "获取上传链接失败");
+      }
+
+      // 直接上传文件到云存储
+      const uploadRes = await fetch(metaData.uploadUrl, {
+        method: "PUT",
+        body: file,
+        headers: {
+          "Content-Type": "application/octet-stream"
+        }
+      });
+      
+      if (!uploadRes.ok) {
+        throw new Error("文件上传失败");
       }
     }
 
     async function loadFiles() {
-      const res = await fetch(`${API_BASE}/files`);
-      const data = await res.json();
-      const list = document.getElementById("fileList");
-      list.innerHTML = "";
-
-      data.files.forEach(f => {
-        const li = document.createElement("li");
-        li.className = "file-item";
-        const sizeMB = (f.size / (1024*1024)).toFixed(2) + " MB";
-
-        let downloadUrl = `${API_BASE}/download?file=${encodeURIComponent(f.source === "Google Drive" ? f.id : f.name)}&type=${f.source === "Google Drive" ? "gdrive" : "dropbox"}`;
-
-        li.innerHTML = `${f.name} (${sizeMB}, ${f.source}) 
-                        <a href="${downloadUrl}">下载</a>`;
-        list.appendChild(li);
-      });
+      const container = document.getElementById('fileListContainer');
+      container.innerHTML = '<p>加载中...</p>';
+      
+      try {
+        const res = await fetch(`${API_BASE}/files`);
+        const data = await res.json();
+        
+        if (!res.ok) {
+          throw new Error(data.error || "获取文件列表失败");
+        }
+        
+        if (!data.files || data.files.length === 0) {
+          container.innerHTML = '<p>暂无文件</p>';
+          return;
+        }
+        
+        let html = '';
+        data.files.forEach(f => {
+          const sizeMB = (f.size / (1024*1024)).toFixed(2);
+          const downloadUrl = `${API_BASE}/download?file=${encodeURIComponent(f.source === "Google Drive" ? f.id : f.name)}&type=${f.source === "Google Drive" ? "gdrive" : "dropbox"}`;
+          
+          html += `
+            <div class="file-item">
+              <div class="file-info">
+                <div class="file-name">${f.name}</div>
+                <div class="file-meta">${sizeMB} MB | ${f.source}</div>
+              </div>
+              <div class="file-actions">
+                <a href="${downloadUrl}" download="${f.name}">下载</a>
+              </div>
+            </div>
+          `;
+        });
+        
+        container.innerHTML = html;
+      } catch (error) {
+        container.innerHTML = `<p class="error">加载失败: ${error.message}</p>`;
+        console.error('Load files error:', error);
+      }
     }
 
+    function showStatus(message, type) {
+      const statusEl = document.getElementById('uploadStatus');
+      statusEl.innerHTML = `<div class="status-message ${type}">${message}</div>`;
+      
+      // 5秒后清除状态消息
+      if (type !== 'warning') {
+        setTimeout(() => {
+          statusEl.innerHTML = '';
+        }, 5000);
+      }
+    }
+
+    // 初始加载文件列表
     loadFiles();
   </script>
 </body>
