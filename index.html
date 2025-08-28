@@ -60,7 +60,7 @@ async function fetchFileList() {
     const data = await res.json();
     const tbody = document.querySelector("#file-table tbody");
     tbody.innerHTML = "";
-    if (!data.files || data.files.length === 0 || data.files === "列表为空") {
+    if (!data.files || data.files.length === 0) {
       tbody.innerHTML = '<tr><td colspan="4">列表为空</td></tr>';
       statusEl.textContent = "";
       return;
@@ -68,9 +68,9 @@ async function fetchFileList() {
     data.files.forEach(f => {
       const tr = document.createElement("tr");
       tr.innerHTML = `<td>${f.name}</td>
-                      <td>${(f.size/1024/1024).toFixed(2)} MB</td>
+                      <td>${(Number(f.size)/1024/1024).toFixed(2)} MB</td>
                       <td>${f.source}</td>
-                      <td><button onclick="downloadFile('${encodeURIComponent(f.name)}')">下载</button></td>`;
+                      <td><button onclick="downloadFile('${encodeURIComponent(f.name)}','${f.source}')">下载</button></td>`;
       tbody.appendChild(tr);
     });
     statusEl.textContent = "";
@@ -80,10 +80,10 @@ async function fetchFileList() {
   }
 }
 
-async function downloadFile(filename) {
+async function downloadFile(filename, type) {
   statusEl.textContent = "下载中...";
   try {
-    const res = await fetch(`/api/download?file=${filename}`);
+    const res = await fetch(`/api/download?file=${filename}&type=${type}`);
     if (!res.ok) throw new Error(await res.text());
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
@@ -102,13 +102,11 @@ async function uploadFile() {
   const file = fileInput.files[0];
   if (!file) { statusEl.textContent="请选择文件"; return; }
 
-  // 大文件显示校验码输入框
   if (file.size > FILE_SIZE_LIMIT) {
     codeInput.style.display = "block";
     const code = codeInput.value.trim();
     if (!code) { statusEl.textContent="请输入大文件校验码"; return; }
 
-    // 发送请求给 Worker 获取 Resumable Upload URL
     const formData = new FormData();
     formData.append("filename", file.name);
     formData.append("size", file.size);
@@ -119,7 +117,6 @@ async function uploadFile() {
       const res = await fetch("/api/upload", { method:"POST", body: formData });
       const data = await res.json();
       if (!data.uploadUrl) throw new Error(JSON.stringify(data));
-      // 前端直接 PUT 上传大文件
       await fetch(data.uploadUrl, { method:"PUT", body:file });
       statusEl.textContent = "大文件上传完成";
       fetchFileList();
@@ -127,13 +124,12 @@ async function uploadFile() {
       statusEl.textContent = "上传失败: " + e.message;
     }
   } else {
-    // 小文件直接上传
     const formData = new FormData();
     formData.append("file", file);
     statusEl.textContent = "上传中...";
     try {
       const res = await fetch("/api/upload", { method:"POST", body: formData });
-      const text = await res.text();
+      const data = await res.json();
       statusEl.textContent = "上传完成";
       fetchFileList();
     } catch(e) {
@@ -145,8 +141,6 @@ async function uploadFile() {
 
 document.getElementById("refresh-btn").addEventListener("click", fetchFileList);
 document.getElementById("upload-btn").addEventListener("click", uploadFile);
-
-// 页面加载时刷新列表
 fetchFileList();
 </script>
 </body>
