@@ -10,10 +10,10 @@
       background: #f5f7f9;
       color: #333;
       line-height: 1.6;
+      max-width: 1200px;
+      margin: 0 auto;
     }
     .container {
-      max-width: 1000px;
-      margin: 0 auto;
       background: white;
       padding: 25px;
       border-radius: 10px;
@@ -47,6 +47,7 @@
       border: 1px solid #ddd;
       border-radius: 4px;
       font-size: 16px;
+      box-sizing: border-box;
     }
     button {
       background: #3498db;
@@ -88,6 +89,7 @@
     .file-name {
       font-weight: 600;
       margin-bottom: 5px;
+      word-break: break-all;
     }
     .file-meta {
       font-size: 14px;
@@ -101,6 +103,7 @@
       text-decoration: none;
       font-size: 14px;
       transition: background 0.3s;
+      display: inline-block;
     }
     .file-actions a:hover {
       background: #27ae60;
@@ -123,6 +126,10 @@
       background: #fff3cd;
       color: #856404;
     }
+    .info {
+      background: #d1ecf1;
+      color: #0c5460;
+    }
     .large-file-note {
       display: none;
       background: #e8f4fd;
@@ -130,6 +137,12 @@
       border-radius: 4px;
       margin-top: 10px;
       font-size: 14px;
+    }
+    .refresh-btn {
+      background: #6c757d;
+    }
+    .refresh-btn:hover {
+      background: #5a6268;
     }
   </style>
 </head>
@@ -159,7 +172,7 @@
     <div class="file-list">
       <div class="file-header">
         <h2>文件列表</h2>
-        <button onclick="loadFiles()">刷新列表</button>
+        <button class="refresh-btn" onclick="loadFiles()">刷新列表</button>
       </div>
       
       <div id="fileListContainer">
@@ -236,17 +249,29 @@
       formData.append("upload_type", "dropbox"); // 先尝试Dropbox
 
       const res = await fetch(`${API_BASE}/upload`, { method: "POST", body: formData });
-      const data = await res.json();
+      let data;
+      
+      try {
+        data = await res.json();
+      } catch (e) {
+        throw new Error(await res.text());
+      }
       
       if (!res.ok) {
         // 如果Dropbox满了，尝试Google Drive
-        if (data.error && data.error.includes("space")) {
+        if (data.error && (data.error.includes("space") || data.error.includes("insufficient"))) {
           const retryFormData = new FormData();
           retryFormData.append("file", file);
           retryFormData.append("upload_type", "gdrive");
           
           const retryRes = await fetch(`${API_BASE}/upload`, { method: "POST", body: retryFormData });
-          const retryData = await retryRes.json();
+          let retryData;
+          
+          try {
+            retryData = await retryRes.json();
+          } catch (e) {
+            throw new Error(await retryRes.text());
+          }
           
           if (!retryRes.ok) {
             throw new Error(retryData.error || "上传失败");
@@ -266,7 +291,13 @@
       metaFormData.append("upload_type", "gdrive"); // 大文件直接传Google Drive
 
       const metaRes = await fetch(`${API_BASE}/upload`, { method: "POST", body: metaFormData });
-      const metaData = await metaRes.json();
+      let metaData;
+      
+      try {
+        metaData = await metaRes.json();
+      } catch (e) {
+        throw new Error(await metaRes.text());
+      }
       
       if (!metaRes.ok || !metaData.uploadUrl) {
         throw new Error(metaData.error || "获取上传链接失败");
@@ -282,7 +313,7 @@
       });
       
       if (!uploadRes.ok) {
-        throw new Error("文件上传失败");
+        throw new Error("文件上传失败: " + await uploadRes.text());
       }
     }
 
@@ -292,7 +323,13 @@
       
       try {
         const res = await fetch(`${API_BASE}/files`);
-        const data = await res.json();
+        let data;
+        
+        try {
+          data = await res.json();
+        } catch (e) {
+          throw new Error(await res.text());
+        }
         
         if (!res.ok) {
           throw new Error(data.error || "获取文件列表失败");
@@ -323,7 +360,7 @@
         
         container.innerHTML = html;
       } catch (error) {
-        container.innerHTML = `<p class="error">加载失败: ${error.message}</p>`;
+        container.innerHTML = `<div class="status-message error">加载失败: ${error.message}</div>`;
         console.error('Load files error:', error);
       }
     }
@@ -332,10 +369,12 @@
       const statusEl = document.getElementById('uploadStatus');
       statusEl.innerHTML = `<div class="status-message ${type}">${message}</div>`;
       
-      // 5秒后清除状态消息
+      // 5秒后清除状态消息（成功/错误消息）
       if (type !== 'warning') {
         setTimeout(() => {
-          statusEl.innerHTML = '';
+          if (statusEl.innerHTML.includes(message)) {
+            statusEl.innerHTML = '';
+          }
         }, 5000);
       }
     }
