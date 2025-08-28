@@ -1,153 +1,106 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh">
 <head>
   <meta charset="UTF-8">
-  <title>QSDQ CloudPan</title>
+  <title>混合网盘系统</title>
   <style>
-    body { font-family: "Segoe UI", sans-serif; background: #f5f5f5; margin: 0; padding: 0; }
-    header { background: #4CAF50; color: white; padding: 1rem; text-align: center; font-size: 1.5rem; }
-    main { max-width: 900px; margin: 2rem auto; background: white; padding: 1.5rem; border-radius: 10px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1); }
-    table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
-    th, td { padding: 0.8rem; border-bottom: 1px solid #ddd; text-align: left; }
-    th { background: #f0f0f0; }
-    tr:hover { background: #f9f9f9; }
-    button { padding: 0.5rem 1rem; border: none; border-radius: 5px; background: #4CAF50; color: white; cursor: pointer; margin-right: 0.5rem; }
-    button:hover { background: #45a049; }
-    #upload-section { margin-top: 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
-    #large-file-code { display: none; }
-    .status { margin-top: 1rem; color: #333; }
+    body { font-family: sans-serif; padding: 20px; }
+    h1 { margin-bottom: 10px; }
+    .file-list { margin-top: 20px; }
+    .file-item { margin: 5px 0; }
   </style>
 </head>
 <body>
-  <header>QSDQ CloudPan</header>
-  <main>
-    <div>
-      <button id="refresh-btn">刷新列表</button>
-      <span class="status" id="status"></span>
-    </div>
+  <h1>混合储存网盘</h1>
 
-    <table id="file-table">
-      <thead>
-        <tr>
-          <th>文件名</th>
-          <th>大小</th>
-          <th>来源</th>
-          <th>操作</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr><td colspan="4">列表为空</td></tr>
-      </tbody>
-    </table>
+  <div>
+    <input type="file" id="fileInput">
+    <select id="uploadType">
+      <option value="dropbox">Dropbox</option>
+      <option value="gdrive">Google Drive</option>
+    </select>
+    <button onclick="uploadFile()">上传</button>
+  </div>
 
-    <div id="upload-section">
-      <input type="file" id="file-input" />
-      <input type="text" id="large-file-code" placeholder="大文件校验码" />
-      <button id="upload-btn">上传文件</button>
-    </div>
-  </main>
+  <div class="file-list">
+    <h2>文件列表</h2>
+    <button onclick="loadFiles()">刷新</button>
+    <ul id="fileList"></ul>
+  </div>
 
   <script>
-    const FILE_SIZE_LIMIT = 5 * 1024 * 1024 * 1024; // 5GB
-    const statusEl = document.getElementById("status");
-    const fileInput = document.getElementById("file-input");
-    const codeInput = document.getElementById("large-file-code");
-
-    async function fetchFileList() {
-      statusEl.textContent = "刷新中...";
-      try {
-        const res = await fetch("/api/list");
-        const data = await res.json();
-        const tbody = document.querySelector("#file-table tbody");
-        tbody.innerHTML = "";
-        if (!data.files || data.files.length === 0 || data.files === "列表为空") {
-          tbody.innerHTML = '<tr><td colspan="4">列表为空</td></tr>';
-          statusEl.textContent = "";
-          return;
-        }
-        data.files.forEach(f => {
-          const tr = document.createElement("tr");
-          tr.innerHTML = `<td>${f.name}</td>
-                          <td>${(f.size / 1024 / 1024).toFixed(2)} MB</td>
-                          <td>${f.source}</td>
-                          <td><button onclick="downloadFile('${encodeURIComponent(f.name)}')">下载</button></td>`;
-          tbody.appendChild(tr);
-        });
-        statusEl.textContent = "";
-      } catch (e) {
-        statusEl.textContent = "刷新列表失败";
-        console.error(e);
-      }
-    }
-
-    async function downloadFile(filename) {
-      statusEl.textContent = "下载中...";
-      try {
-        const res = await fetch(`/api/download?file=${filename}`);
-        if (!res.ok) throw new Error(await res.text());
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = decodeURIComponent(filename);
-        a.click();
-        statusEl.textContent = "下载完成";
-      } catch (e) {
-        statusEl.textContent = "下载失败: " + e.message;
-        console.error(e);
-      }
-    }
+    const API_BASE = "/api"; // Worker 路由前缀
 
     async function uploadFile() {
+      const fileInput = document.getElementById("fileInput");
+      if (fileInput.files.length === 0) {
+        alert("请选择文件");
+        return;
+      }
+
       const file = fileInput.files[0];
-      if (!file) { statusEl.textContent = "请选择文件"; return; }
+      const uploadType = document.getElementById("uploadType").value;
 
-      // 大文件显示校验码输入框
-      if (file.size > FILE_SIZE_LIMIT) {
-        codeInput.style.display = "block";
-        const code = codeInput.value.trim();
-        if (!code) { statusEl.textContent = "请输入大文件校验码"; return; }
-
-        // 发送请求给 Worker 获取 Resumable Upload URL
-        const formData = new FormData();
-        formData.append("filename", file.name);
-        formData.append("size", file.size);
-        formData.append("code", code);
-
-        statusEl.textContent = "准备上传大文件...";
-        try {
-          const res = await fetch("/api/upload", { method: "POST", body: formData });
-          const data = await res.json();
-          if (!data.uploadUrl) throw new Error(JSON.stringify(data));
-          // 前端直接 PUT 上传大文件
-          await fetch(data.uploadUrl, { method: "PUT", body: file });
-          statusEl.textContent = "大文件上传完成";
-          fetchFileList();
-        } catch (e) {
-          statusEl.textContent = "上传失败: " + e.message;
+      // >5GB 文件需要校验码
+      if (file.size > 5 * 1024 * 1024 * 1024) {
+        const code = prompt("请输入大文件校验码");
+        if (!code) {
+          alert("必须输入校验码");
+          return;
         }
+
+        const form = new FormData();
+        form.append("filename", file.name);
+        form.append("size", file.size);
+        form.append("code", code);
+        form.append("upload_type", uploadType);
+
+        const res = await fetch(`${API_BASE}/upload`, { method: "POST", body: form });
+        const data = await res.json();
+        if (res.ok && data.uploadUrl) {
+          alert("请在控制台查看上传链接，自己用 fetch/工具上传：\n" + data.uploadUrl);
+          console.log("大文件上传链接：", data.uploadUrl);
+        } else {
+          alert("校验失败或出错: " + JSON.stringify(data));
+        }
+        return;
+      }
+
+      // 小文件直接上传
+      const form = new FormData();
+      form.append("file", file);
+      form.append("upload_type", uploadType);
+
+      const res = await fetch(`${API_BASE}/upload`, { method: "POST", body: form });
+      const data = await res.json();
+      if (res.ok) {
+        alert("上传成功！");
+        loadFiles();
       } else {
-        // 小文件直接上传
-        const formData = new FormData();
-        formData.append("file", file);
-        statusEl.textContent = "上传中...";
-        try {
-          const res = await fetch("/api/upload", { method: "POST", body: formData });
-          const text = await res.text();
-          statusEl.textContent = "上传完成";
-          fetchFileList();
-        } catch (e) {
-          statusEl.textContent = "上传失败: " + e.message;
-          console.error(e);
-        }
+        alert("上传失败: " + JSON.stringify(data));
       }
     }
 
-    document.getElementById("refresh-btn").addEventListener("click", fetchFileList);
-    document.getElementById("upload-btn").addEventListener("click", uploadFile);
+    async function loadFiles() {
+      const res = await fetch(`${API_BASE}/files`);
+      const data = await res.json();
+      const list = document.getElementById("fileList");
+      list.innerHTML = "";
 
-    // 页面加载时刷新列表
-    fetchFileList();
+      data.files.forEach(f => {
+        const li = document.createElement("li");
+        li.className = "file-item";
+        const sizeMB = (f.size / (1024*1024)).toFixed(2) + " MB";
+
+        let downloadUrl = `${API_BASE}/download?file=${encodeURIComponent(f.source === "Google Drive" ? f.id : f.name)}&type=${f.source === "Google Drive" ? "gdrive" : "dropbox"}`;
+
+        li.innerHTML = `${f.name} (${sizeMB}, ${f.source}) 
+                        <a href="${downloadUrl}">下载</a>`;
+        list.appendChild(li);
+      });
+    }
+
+    loadFiles();
   </script>
 </body>
 </html>
